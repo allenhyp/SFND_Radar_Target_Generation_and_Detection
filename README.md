@@ -85,47 +85,50 @@ mix_fft=mix_fft(1:Nr/2);
 1. Output of 2D FFT operation, i.e the Range Doppler Map.
 ![2D_FFT](https://github.com/allenhyp/SFND_Radar_Target_Generation_and_Detection/blob/master/result_image/2D_FFT.png?raw=true)
 
-2. CFAR setup
-```
-% Select the number of Training Cells in both the dimensions.
-Tr=20;
-Td=16;
+2. 2D CFAR implementation
+	1. Setup the training and guard cells for both directions, and the offset for threshold:
+		```
+        % Select the number of Training Cells in both the dimensions.
+        Tr=20;
+        Td=16;
 
-% Select the number of Guard Cells in both dimensions around the Cell under test (CUT) for accurate estimation
-Gr=10;
-Gd=8;
+        % Select the number of Guard Cells in both dimensions around the Cell under test (CUT) for accurate estimation
+        Gr=10;
+        Gd=8;
 
-% Offset the threshold by SNR value in dB
-offset=8;
+        % Offset the threshold by SNR value in dB
+        offset=8;
+        ```
+	2. Calculate the window property of CFAR in advance:
+        ```
+        % Create a vector to store noise_level for each iteration on training cells
+        window_size=(2*Tr+2*Gr+1)*(2*Td+2*Gd+1);
+        num_training_cells=window_size-(2*Gr+1)*(2*Gd+1);
+        signals=zeros(size(RDM));
+        ```
+    3. The result matrix (signals) which is a matrix with the same size as the output of 2D FFT (RDM). We slide window though the RDM, and calculate the average of the noise level (converted from logarithmic scale into linear) in the training cells around the CUT (and guard cells). The noise level would be converted back to logarithmic and be multiplied by the preset offset and used as the threshold. If the value at CUT is higher than the threshold, we'd say the signal at CUT is valid instead of a noise. Then keep looping and update the "signals matrix" with sigal higher than threhsold would be set to 1, otherwise set to 0.
+        ```
+        [RDM_r, RDM_d]=size(RDM);
+        for i=1:RDM_d-2*(Td+Gd)
+            for j=1:RDM_r-2*(Tr+Gr)
+                % Use RDM[x,y] as the matrix from the output of 2D FFT for implementing CFAR
+                training_window=db2pow(RDM(j:j+2*(Tr+Gr),i:i+2*(Td+Gd)));
+                training_window(Tr+1:Tr+2*Gr+2,Td+1:Td+2*Gd+2)=0;
+                noise_level=pow2db(sum(training_window)/num_training_cells);
+                threshold=noise_level*offset;
 
-% Create a vector to store noise_level for each iteration on training cells
-window_size=(2*Tr+2*Gr+1)*(2*Td+2*Gd+1);
-num_training_cells=window_size-(2*Gr+1)*(2*Gd+1);
-signals=zeros(size(RDM));
-```
-3. Slide window though the Range Doppler Map
-```
-[RDM_r, RDM_d]=size(RDM);
-for i=1:RDM_d-2*(Td+Gd)
-    for j=1:RDM_r-2*(Tr+Gr)
-        % Use RDM[x,y] as the matrix from the output of 2D FFT for implementing CFAR
-        training_window=db2pow(RDM(j:j+2*(Tr+Gr),i:i+2*(Td+Gd)));
-        training_window(Tr+1:Tr+2*Gr+2,Td+1:Td+2*Gd+2)=0;
-        noise_level=pow2db(sum(training_window)/num_training_cells);
-        threshold=noise_level*offset;
-        
-        % The process above will generate a thresholded block, which is smaller
-        % than the Range Doppler Map as the CUT cannot be located at the edges of
-        % matrix. Hence,few cells will not be thresholded. To keep the map size same
-        % set those values to 0.
-        target_d=i+Td+Gd;
-        target_r=j+Tr+Gr;
-        if RDM(target_r,target_d) > threshold
-            signals(target_r,target_d)=1;
+                % The process above will generate a thresholded block, which is smaller
+                % than the Range Doppler Map as the CUT cannot be located at the edges of
+                % matrix. Hence,few cells will not be thresholded. To keep the map size same
+                % set those values to 0.
+                target_d=i+Td+Gd;
+                target_r=j+Tr+Gr;
+                if RDM(target_r,target_d) > threshold
+                    signals(target_r,target_d)=1;
+                end
+            end
         end
-    end
-end
-```
+        ```
 4. Ouput of 2D CA-CFAR result
 ![2D_CA-CFAR](https://github.com/allenhyp/SFND_Radar_Target_Generation_and_Detection/blob/master/result_image/2D_CA-CFAR.png?raw=true)
 As the image shown above, the target with range ~= 100 and velocity ~= 15 was detected.
